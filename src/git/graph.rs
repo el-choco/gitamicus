@@ -34,7 +34,7 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
     let mut branch_colors: HashMap<String, usize> = HashMap::new(); // Track branch colors
     let mut next_color: usize = 0;
 
-    // Assign lanes to commits with better continuity
+    // First pass: assign lanes
     for (_i, (sha, _, _, _, parents)) in commits.iter().enumerate() {
         let mut assigned_lane = None;
 
@@ -64,21 +64,6 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
             lane_heads.resize(lane + 1, None);
         }
         lane_heads[lane] = Some(sha.clone());
-        
-        // Assign color to this branch if not already assigned
-        if !branch_colors.contains_key(sha) {
-            if let Some(parent_sha) = parents.get(0) {
-                if let Some(&parent_color) = branch_colors.get(parent_sha) {
-                    branch_colors.insert(sha.clone(), parent_color);
-                } else {
-                    branch_colors.insert(sha.clone(), next_color % 8);
-                    next_color += 1;
-                }
-            } else {
-                branch_colors.insert(sha.clone(), next_color % 8);
-                next_color += 1;
-            }
-        }
 
         // For merge commits, free up the lanes of the other parents
         for (_idx, parent_sha) in parents.iter().enumerate().filter(|(i, _)| *i > 0) {
@@ -86,6 +71,26 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
                 if lane_heads.get(p_lane).and_then(|h| h.as_ref()) == Some(parent_sha) {
                     lane_heads[p_lane] = None;
                 }
+            }
+        }
+    }
+
+    // Second pass: assign colors (process in reverse to handle parent-to-child inheritance)
+    for (sha, _, _, _, parents) in commits.iter().rev() {
+        if !branch_colors.contains_key(sha) {
+            // Check if first parent has a color - if so, inherit it
+            if let Some(parent_sha) = parents.get(0) {
+                if let Some(&parent_color) = branch_colors.get(parent_sha) {
+                    branch_colors.insert(sha.clone(), parent_color);
+                } else {
+                    // Parent not colored yet, assign new color
+                    branch_colors.insert(sha.clone(), next_color % 8);
+                    next_color += 1;
+                }
+            } else {
+                // No parent, assign new color
+                branch_colors.insert(sha.clone(), next_color % 8);
+                next_color += 1;
             }
         }
     }
@@ -141,4 +146,68 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
     }
 
     nodes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_commits() {
+        let commits = vec![];
+        let nodes = generate_graph(&commits);
+        assert_eq!(nodes.len(), 0);
+    }
+
+    #[test]
+    fn test_single_commit() {
+        let commits = vec![
+            ("abc123".to_string(), "Initial commit".to_string(), "Author".to_string(), "2024-01-01".to_string(), vec![])
+        ];
+        let nodes = generate_graph(&commits);
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].sha, "abc123");
+        assert_eq!(nodes[0].paths.len(), 0); // No parents, no paths
+    }
+
+    #[test]
+    fn test_linear_history() {
+        let commits = vec![
+            ("commit3".to_string(), "Third".to_string(), "Author".to_string(), "2024-01-03".to_string(), vec!["commit2".to_string()]),
+            ("commit2".to_string(), "Second".to_string(), "Author".to_string(), "2024-01-02".to_string(), vec!["commit1".to_string()]),
+            ("commit1".to_string(), "First".to_string(), "Author".to_string(), "2024-01-01".to_string(), vec![]),
+        ];
+        let nodes = generate_graph(&commits);
+        assert_eq!(nodes.len(), 3);
+        // All commits should be in the same lane
+        assert_eq!(nodes[0].color_index, nodes[1].color_index);
+        assert_eq!(nodes[1].color_index, nodes[2].color_index);
+    }
+
+    #[test]
+    fn test_branch_split() {
+        let commits = vec![
+            ("commit3".to_string(), "Branch commit".to_string(), "Author".to_string(), "2024-01-03".to_string(), vec!["commit1".to_string()]),
+            ("commit2".to_string(), "Main commit".to_string(), "Author".to_string(), "2024-01-02".to_string(), vec!["commit1".to_string()]),
+            ("commit1".to_string(), "Initial".to_string(), "Author".to_string(), "2024-01-01".to_string(), vec![]),
+        ];
+        let nodes = generate_graph(&commits);
+        assert_eq!(nodes.len(), 3);
+        // Branches should have different colors
+        assert_ne!(nodes[0].color_index, nodes[1].color_index);
+    }
+
+    #[test]
+    fn test_merge_commit() {
+        let commits = vec![
+            ("merge".to_string(), "Merge".to_string(), "Author".to_string(), "2024-01-04".to_string(), vec!["commit2".to_string(), "commit3".to_string()]),
+            ("commit3".to_string(), "Branch".to_string(), "Author".to_string(), "2024-01-03".to_string(), vec!["commit1".to_string()]),
+            ("commit2".to_string(), "Main".to_string(), "Author".to_string(), "2024-01-02".to_string(), vec!["commit1".to_string()]),
+            ("commit1".to_string(), "Initial".to_string(), "Author".to_string(), "2024-01-01".to_string(), vec![]),
+        ];
+        let nodes = generate_graph(&commits);
+        assert_eq!(nodes.len(), 4);
+        // Merge commit should have two paths
+        assert_eq!(nodes[0].paths.len(), 2);
+    }
 }
