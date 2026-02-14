@@ -371,7 +371,7 @@ pub fn app() -> Element {
                                                     td { class: "commit-graph-cell-svg",
                                                         svg {
                                                             height: "32px",
-                                                            width: "140px",
+                                                            width: "180px",
                                                             for (idx, path_d) in node.paths.iter().enumerate() {
                                                                 path { 
                                                                     d: "{path_d}", 
