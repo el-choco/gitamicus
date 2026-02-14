@@ -121,6 +121,8 @@ pub fn app() -> Element {
         GitHandler::get_commit_details(&current_path, sha).ok()
     } else { None };
 
+    let svg_view_height = (commits_raw.len() as f64 * 32.0).max(32.0).ceil() as i32;
+
     rsx! {
         div {
             style: "display: flex; flex-direction: column; width: 100vw; height: 100vh; overflow: hidden; background: var(--bg-base); color: var(--text-main); zoom: {zoom_level};",
@@ -372,6 +374,7 @@ pub fn app() -> Element {
                                                         svg {
                                                             height: "32px",
                                                             width: "180px",
+                                                            viewBox: "0 0 180 {svg_view_height}",
                                                             for (idx, path_d) in node.paths.iter().enumerate() {
                                                                 path { 
                                                                     d: "{path_d}", 
