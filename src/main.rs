@@ -4,7 +4,7 @@ mod git;
 
 use dioxus::prelude::*;
 use dioxus::desktop::{Config, WindowBuilder};
-use dioxus::html::input_data::MouseButton;
+use  crate::dioxus_elements::input_data::MouseButton;
 #[cfg(target_os = "windows")]
 use dioxus::desktop::tao::platform::windows::WindowBuilderExtWindows;
 use i18n::I18nService;
@@ -22,35 +22,49 @@ fn get_config_path() -> Option<PathBuf> {
         path.push("gitamicus");
         path.push("gitamicus.conf");
         Some(path)
-    } else {
+    }  else {
         None
     }
 }
-fn load_credentials() -> (String, String) {
+
+fn load_credentials() -> (String, String, String) {
     if let Some(config_path) = get_config_path() {
         if let Ok(content) = fs::read_to_string(&config_path) {
             let parts: Vec<&str> = content.split('\n').collect();
-            if parts.len() >= 2 {
-                return (parts[0].trim().to_string(), parts[1].trim().to_string());
-            }
+            let user = parts.get(0).map_or("", |s| s.trim()).to_string();
+            let token = parts.get(1).map_or("", |s| s.trim()).to_string(); 
+            let repo_path = parts.get(2).map_or("", |s| s.trim()).to_string(); 
+            return (user, token, repo_path);
         }
     }
-    (String::new(), String::new())
+    
+    (String::new(), String::new(), String::new())
 }
 
-fn save_credentials(user: &str, token: &str) -> Result<(), String> {
+fn save_credentials(user: &str, token: &str, repo_path: &str) -> Result<(), String> {
     if let Some(config_path) = get_config_path() {
         if let Some(parent_dir) = config_path.parent() {
             if let Err(e) = fs::create_dir_all(parent_dir) {
                 return Err(format!("Fehler beim Erstellen des Konfigurationsverzeichnisses: {}", e));
             }
         }
-        let data = format!("{}\n{}", user, token);
+        let data = format!("{}\n{}\n{}", user, token, repo_path);
         fs::write(&config_path, data).map_err(|e| format!("Fehler beim Schreiben der Anmeldedaten: {}", e))
     } else {
         Err("Konfigurationsverzeichnis konnte nicht ermittelt werden.".to_string())
     }
 }
+
+const GRAPH_COLORS: [&str; 8] = [
+    "#89b4fa", // blue
+    "#f9e2af", // yellow
+    "#a6e3a1", // green
+    "#f38ba8", // red
+    "#cba6f7", // mauve
+    "#fab387", // peach
+    "#94e2d5", // teal
+    "#f5c2e7", // pink
+];
 
 fn main() {
     let custom_head = r#"
@@ -158,13 +172,15 @@ fn main() {
                 box-shadow: 0 0 10px rgba(137, 180, 250, 0.3);
             }
             
-            .commit-graph-cell { position: relative; width: 40px; display: flex; justify-content: center; height: 100%; align-items: center; }
-            .graph-line { position: absolute; top: 0; bottom: 0; width: 2px; background-color: var(--border-color); z-index: 0; }
-            .graph-dot { 
-                width: 10px; height: 10px; border-radius: 50%; background-color: var(--bg-base); 
-                z-index: 1; border: 2px solid var(--accent-primary); box-shadow: 0 0 8px var(--accent-primary); 
+            .commit-graph-cell-svg {
+                padding: 0 !important;
+                width: 120px;
+                min-width: 120px;
+                overflow: hidden;
+                position: relative;
             }
-
+            .commit-graph-cell-svg svg { display: block; position: absolute; top: 0; left: 0; height: 100%; width: 100%; }
+            
             input, textarea { 
                 background: var(--bg-surface); border: 1px solid var(--border-color); color: white; 
                 border-radius: 6px; outline: none; transition: border-color 0.2s; 
@@ -173,7 +189,7 @@ fn main() {
             
             table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
             thead tr { background: var(--bg-sidebar); position: sticky; top: 0; z-index: 10; }
-            th { padding: 10px; font-weight: 600; color: var(--text-sub); text-align: left; border-bottom: 1px solid var(--border-color); }
+            th { padding: 8px 10px; font-weight: 600; color: var(--text-sub); text-align: left; border-bottom: 1px solid var(--border-color); }
             td { padding: 8px 10px; border-bottom: 1px solid #2a2b3c; color: var(--text-main); }
             tr:hover td { background-color: var(--bg-surface); }
 
@@ -202,7 +218,7 @@ fn main() {
             .nav-item:last-of-type {
                 border-bottom: none; /* Keine Trennlinie für das letzte Element einer Gruppe */
             }
-            .nav-item:hover {
+            .nav-item:hover { 
                 background-color: var(--bg-hover);
             }
             .nav-item.active {
@@ -217,7 +233,7 @@ fn main() {
                 border-radius: 10px;
                 font-size: 0.7em;
                 font-weight: 600;
-                margin-left: auto; 
+                margin-left: auto;
             }
 
             ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -256,9 +272,15 @@ fn app() -> Element {
         if system_lang.starts_with("de") { I18nService::new("de-DE") } else { I18nService::new("en-US") }
     });
 
-    let (saved_user, saved_token) = load_credentials();
+    let (saved_user, saved_token, saved_repo_path) = load_credentials();
 
-    let mut repo_path = use_signal(|| ".".to_string());
+    let mut repo_path = use_signal(|| {
+        if saved_repo_path.is_empty() {
+            ".".to_string()
+        } else {
+            saved_repo_path
+        }
+    });
     let mut refresh_trigger = use_signal(|| 0);
     let mut commit_msg = use_signal(|| "".to_string());
     let mut selected_file = use_signal(|| None::<String>);
@@ -312,8 +334,14 @@ fn app() -> Element {
     
     let repo_name = Path::new(&*current_path).file_name().and_then(|n| n.to_str()).unwrap_or("GitAmicus").to_string();
 
-    let commits_raw = GitHandler::get_latest_commits_full(&current_path, 100, *view_all_commits.read()).unwrap_or_default();
-    let commits: Vec<_> = commits_raw.into_iter()
+    let commits_raw: Vec<(String, String, String, String, Vec<String>)> = GitHandler::get_latest_commits_full(&current_path, 100, *view_all_commits.read()).unwrap_or_default();
+    
+    // Generate the full graph layout from the raw (unfiltered) commits
+    let graph_nodes = git::graph::generate_graph(&commits_raw);
+    let graph_map: std::collections::HashMap<String, git::graph::GraphNode> =
+        graph_nodes.into_iter().map(|node| (node.sha.clone(), node)).collect();
+
+    let commits: Vec<_> = commits_raw.clone().into_iter()
         .filter(|c| c.1.to_lowercase().contains(&commit_search.read().to_lowercase()))
         .collect();
 
@@ -379,7 +407,7 @@ fn app() -> Element {
             },
 
             div { class: "title-bar",
-                onmousedown: move |e| {
+                onmousedown: |e| {
                     if e.held_buttons().contains(MouseButton::Primary) {
                         dioxus::desktop::window().drag();
                     }
@@ -387,7 +415,7 @@ fn app() -> Element {
                 div { class: "title-section-left", 
                     span { style: "color: var(--accent-primary); margin-right: 5px;", "Git" } "Amicus"
                 }
-                div { class: "title-section-center",
+                div { class: "title-section-center", 
                     div { class: "repo-status-box",
                         span { class: "repo-name", "{repo_name}" }
                         span { class: "divider", "|" }
@@ -401,16 +429,16 @@ fn app() -> Element {
                     }
                     div { class: "window-controls",
                         div { class: "control-btn", 
-                            onmousedown: move |e| e.stop_propagation(),
-                            onclick: move |e| { 
+                            onmousedown: |e| e.stop_propagation(),
+                            onclick: |e| { 
                                 e.stop_propagation();
                                 dioxus::desktop::window().set_minimized(true); 
                             }, 
                             "_" 
                         }
                         div { class: "control-btn", 
-                            onmousedown: move |e| e.stop_propagation(),
-                            onclick: move |e| { 
+                            onmousedown: |e| e.stop_propagation(),
+                            onclick: |e| { 
                                 e.stop_propagation();
                                 let w = dioxus::desktop::window(); 
                                 if w.is_maximized() { w.set_maximized(false); } else { w.set_maximized(true); } 
@@ -418,8 +446,8 @@ fn app() -> Element {
                             "☐" 
                         }
                         div { class: "control-btn close", 
-                            onmousedown: move |e| e.stop_propagation(),
-                            onclick: move |e| { 
+                            onmousedown: |e| e.stop_propagation(),
+                            onclick: |e| { 
                                 e.stop_propagation();
                                 std::thread::spawn::<_, ()>(|| std::process::exit(0)); 
                             }, 
@@ -430,22 +458,24 @@ fn app() -> Element {
             }
             
             div { class: "menu-bar", style: "background: var(--bg-header); border-bottom: 1px solid var(--border-color); padding: 2px 5px; height: 32px; display: flex; align-items: center;",
-                div { style: "position: relative;",
-                    div { class: "menu-item", 
+                div {
+                    style: "position: relative;",
+                    div {
+                        class: "menu-item", 
                         onmousedown: move |e| e.stop_propagation(),
-                        onclick: move |e| { e.stop_propagation(); let current = active_menu.read().clone(); let new_val = if current == Some("file".to_string()) { None } else { Some("file".to_string()) }; active_menu.set(new_val); },
+                        onclick: move |e| { e.stop_propagation(); let current = active_menu.read().clone(); let new_val = if current == Some("file".to_string()) { None } else { Some("file".to_string()) }; active_menu.set(new_val); }, 
                         "{i18n.translate(\"m-file\")}" 
                     }
                     if *active_menu.read() == Some("file".to_string()) {
                         div { class: "menu-dropdown", onmousedown: move |e| e.stop_propagation(),
-                            div { class: "dropdown-item", onclick: move |_| { if let Some(p) = rfd::FileDialog::new().pick_folder() { repo_path.set(p.display().to_string()); active_menu.set(None); let n = *refresh_trigger.read() + 1; refresh_trigger.set(n); } }, "{i18n.translate(\"mi-open\")}" }
-                            div { class: "dropdown-item", onclick: move |_| { if let Some(p) = rfd::FileDialog::new().pick_folder() { match GitHandler::init(&p.display().to_string()) { Ok(_) => { status_msg.set("Init success".to_string()); repo_path.set(p.display().to_string()); }, Err(e) => status_msg.set(format!("Init Error: {}", e)), } active_menu.set(None); } }, "{i18n.translate(\"mi-init\")}" }
+                            div { class: "dropdown-item", onclick: move |_| { if let Some(p) = rfd::FileDialog::new().pick_folder() { let new_path = p.display().to_string(); repo_path.set(new_path.clone()); let _ = save_credentials(&git_user.read(), &git_token.read(), &new_path); active_menu.set(None); let n = *refresh_trigger.read() + 1; refresh_trigger.set(n); } }, "{i18n.translate(\"mi-open\")}" }
+                            div { class: "dropdown-item", onclick: move |_| { if let Some(p) = rfd::FileDialog::new().pick_folder() { let new_path = p.display().to_string(); match GitHandler::init(&new_path) { Ok(_) => { status_msg.set("Init success".to_string()); repo_path.set(new_path.clone()); let _ = save_credentials(&git_user.read(), &git_token.read(), &new_path); }, Err(e) => status_msg.set(format!("Init Error: {}", e)), } active_menu.set(None); } }, "{i18n.translate(\"mi-init\")}" }
                             div { class: "dropdown-item", onclick: move |_| { show_clone_modal.set(true); active_menu.set(None); }, "{i18n.translate(\"mi-clone\")}" }
                             div { class: "separator" }
                             div { class: "dropdown-item", onclick: move |_| { show_settings_modal.set(true); active_menu.set(None); }, "{i18n.translate(\"mi-settings\")}" }
                             div { class: "separator" }
                             div { class: "dropdown-item", onclick: move |_| { std::thread::spawn::<_, ()>(|| { std::process::exit(0); }); }, "{i18n.translate(\"mi-exit\")}" }
-                        }
+                        } 
                     }
                 }
                 div { style: "position: relative;",
@@ -471,7 +501,7 @@ fn app() -> Element {
                             div { class: "dropdown-item", onclick: move |_| { if let Some(f) = rfd::FileDialog::new().pick_file() { let p = repo_path.read().clone(); match GitHandler::apply_patch(&p, &f.display().to_string()) { Ok(_) => { status_msg.set("Patch applied".to_string()); let n = *refresh_trigger.read() + 1; refresh_trigger.set(n); }, Err(e) => status_msg.set(format!("Patch Error: {}", e)), } } active_menu.set(None); }, "{i18n.translate(\"mi-apply-patch\")}" }
                             div { class: "separator" }
                             div { class: "dropdown-item", onclick: move |_| { let _ = Command::new("explorer").arg(&*repo_path.read()).spawn(); active_menu.set(None); }, "{i18n.translate(\"mi-explorer\")}" }
-                            div { class: "dropdown-item", onclick: move |_| { if cfg!(target_os = "windows") { let _ = Command::new("cmd").arg("/C").arg("start").current_dir(&*repo_path.read()).spawn(); } active_menu.set(None); }, "{i18n.translate(\"mi-console\")}" }
+                            div { class: "dropdown-item", onclick: move |_| { if cfg!(target_os = "windows") { let _ = Command::new("cmd").arg("/C").arg("start").current_dir(&*repo_path.read()).spawn(); } active_menu.set(None); }, "{i18n.translate(\"mi-console\")}" } 
                         }
                     }
                 }
@@ -485,12 +515,12 @@ fn app() -> Element {
                             div { class: "dropdown-item", "{i18n.translate(\"mi-theme\")}" }
                         }
                     }
-                }
+                } 
                 div { class: "menu-item", onmousedown: move |e| e.stop_propagation(), "{i18n.translate(\"m-help\")}" }
             }
 
             div { class: "toolbar", style: "height: 44px; background: var(--bg-base); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 15px; gap: 8px; flex-shrink: 0;",
-                div { class: "toolbar-btn", onmousedown: move |e| e.stop_propagation(), onclick: move |_| { if let Some(p) = rfd::FileDialog::new().pick_folder() { repo_path.set(p.display().to_string()); let n = *refresh_trigger.read() + 1; refresh_trigger.set(n); } }, span { style: "font-size: 1.2em;", "📂" }, "{i18n.translate(\"btn-open-repo\")}" }
+                div { class: "toolbar-btn", onmousedown: move |e| e.stop_propagation(), onclick: move |_| { if let Some(p) = rfd::FileDialog::new().pick_folder() { let new_path = p.display().to_string(); repo_path.set(new_path.clone()); let _ = save_credentials(&git_user.read(), &git_token.read(), &new_path); let n = *refresh_trigger.read() + 1; refresh_trigger.set(n); } }, span { style: "font-size: 1.2em;", "📂" }, "{i18n.translate(\"btn-open-repo\")}" }
                 div { class: "toolbar-btn", onmousedown: move |e| e.stop_propagation(), onclick: move |_| { spawn(async move { let p = repo_path.read().clone(); let u = git_user.read().clone(); let t = git_token.read().clone(); status_msg.set("Pulling...".to_string()); match GitHandler::pull(&p, &u, &t) { Ok(_) => status_msg.set("Pull successful".to_string()), Err(e) => status_msg.set(format!("Pull Error: {}", e)), } let n = *refresh_trigger.read() + 1; refresh_trigger.set(n); }); }, span { style: "font-size: 1.2em;", "⬇" }, "{i18n.translate(\"btn-pull\")}" }
                 
                 div { style: "position: relative;",
@@ -519,7 +549,7 @@ fn app() -> Element {
                         span { class: "badge", style: "margin-left: auto;", "{staged_files.len() + unstaged_files.len()}" }
                     }
                     
-                    div { class: "workspace-header", "BRANCHES" }
+                    div { class: "workspace-header", "BRANCHES" } 
                     div { style: "padding: 0 15px 5px 15px; display: flex; gap: 5px;", 
                         input { class: "input-modern", style: "flex: 1; padding: 8px 10px;", placeholder: "New branch...", value: "{new_branch_name}", oninput: move |evt| new_branch_name.set(evt.value()) }
                         button { class: "btn-icon", onclick: move |_| { let path = repo_path.read().clone(); let name = new_branch_name.read().clone(); if !name.is_empty() { match GitHandler::create_branch(&path, &name) { Ok(_) => { status_msg.set("Branch created".to_string()); new_branch_name.set("".to_string()); let n = *refresh_trigger.read()+1; refresh_trigger.set(n); }, Err(e) => status_msg.set(format!("Error: {}", e)), } } }, "+" }
@@ -564,43 +594,62 @@ fn app() -> Element {
                             thead {
                                 tr {
                                     style: "background: var(--bg-sidebar); text-align: left; color: var(--text-sub); position: sticky; top: 0; z-index: 10;",
-                                    th { style: "padding: 6px 10px; font-weight: 600; width: 50px; text-align: center; border-bottom: 1px solid var(--border-color);", "Graph" }
-                                    th { style: "padding: 6px 10px; font-weight: 600; border-bottom: 1px solid var(--border-color);", "Description" }
-                                    th { style: "padding: 6px 10px; font-weight: 600; width: 120px; border-bottom: 1px solid var(--border-color);", "Date" }
-                                    th { style: "padding: 6px 10px; font-weight: 600; width: 100px; border-bottom: 1px solid var(--border-color);", "Author" }
+                                    th { style: "width: 120px;", "Graph" }
+                                    th { "Description" }
+                                    th { style: "width: 140px;", "Date" }
+                                    th { style: "width: 120px;", "Author" }
                                 }
                             }
                             tbody {
-                                for (sha, summary, author, time) in commits {
+                                for (sha, summary, author, time, parents) in commits.iter() {
                                     {
-                                        let is_sel = Some(sha.clone()) == *selected_commit.read();
-                                        let bg_val = if is_sel { "var(--table-hover)" } else { "transparent" };
-                                        let sha_click = sha.clone();
-                                        let sha_ctx = sha.clone();
-                                        let summary_clone = summary.clone();
-                                        
-                                        rsx! {
-                                            tr {
-                                                style: "background: {bg_val}; border-bottom: 1px solid #2a2b3c; cursor: pointer; hover: background: var(--bg-surface);",
-                                                onclick: move |_| {
-                                                    selected_commit.set(Some(sha_click.clone()));
-                                                    view_mode.set("history".to_string());
-                                                    selected_file.set(None);
-                                                },
-                                                oncontextmenu: move |evt| {
-                                                    evt.stop_propagation();
-                                                    context_menu_pos.set(Some((evt.page_coordinates().x, evt.page_coordinates().y, "commit".to_string(), sha_ctx.clone())));
-                                                    reword_input.set(summary_clone.clone());
-                                                },
-                                                prevent_default: "oncontextmenu",
-                                                td { class: "commit-graph-cell",
-                                                    div { class: "graph-line" }
-                                                    div { class: "graph-dot" }
+                                        if let Some(node) = graph_map.get(sha) {
+                                            let is_sel = Some(sha.clone()) == *selected_commit.read();
+                                            let bg_val = if is_sel { "var(--table-hover)" } else { "transparent" };
+                                            let sha_click = sha.clone();
+                                            let sha_ctx = sha.clone();
+                                            let summary_clone = summary.clone();
+                                            let parents_clone = parents.clone();
+                                            rsx! {
+                                                tr {
+                                                    style: "background: {bg_val}; height: 28px; cursor: pointer;",
+                                                    onclick: move |_| {
+                                                        selected_commit.set(Some(sha_click.clone()));
+                                                        view_mode.set("history".to_string());
+                                                        selected_file.set(None);
+                                                    },
+                                                    oncontextmenu: move |evt| {
+                                                        evt.stop_propagation();
+                                                        if parents_clone.len() <= 1 {
+                                                            context_menu_pos.set(Some((evt.page_coordinates().x, evt.page_coordinates().y, "commit".to_string(), sha_ctx.clone())));
+                                                            reword_input.set(summary_clone.clone());
+                                                        }
+                                                    },
+                                                    prevent_default: "oncontextmenu",
+                                                    td { class: "commit-graph-cell-svg",
+                                                        svg {
+                                                            height: "28px",
+                                                            width: "120px",
+                                                            for path_d in &node.paths {
+                                                                path { d: "{path_d}", stroke: "var(--border-color)", "stroke-width": "2", fill: "none" }
+                                                            }
+                                                            circle {
+                                                                cx: "{node.cx}",
+                                                                cy: "{node.cy}",
+                                                                r: "{node.r}",
+                                                                fill: "var(--bg-base)",
+                                                                stroke: "{GRAPH_COLORS[node.color_index]}",
+                                                                "stroke-width": "2"
+                                                            }
+                                                        }
+                                                    }
+                                                    td { "{summary}" }
+                                                    td { "{time}" }
+                                                    td { "{author}" }
                                                 }
-                                                td { style: "padding: 6px 10px; font-weight: 500; color: var(--text-main);", "{summary}" }
-                                                td { style: "padding: 6px 10px; color: var(--text-sub);", "{time}" }
-                                                td { style: "padding: 6px 10px; color: var(--accent-primary);", "{author}" }
                                             }
+                                        } else {
+                                            rsx! {}
                                         }
                                     }
                                 }
@@ -611,7 +660,7 @@ fn app() -> Element {
                 
                 div { class: "resizer", onmousedown: move |_| dragging_right.set(true) }
 
-                div { 
+                div {
                     style: "width: {right_panel_width}px; background: var(--bg-base); display: flex; flex-direction: column; overflow: hidden;",
                     
                     div {
@@ -631,7 +680,7 @@ fn app() -> Element {
                     
                     if *view_mode.read() == "local" {
                         if *right_panel_tab.read() == "commit" {
-                            div { 
+                            div {
                                 style: "flex: 1; display: flex; flex-direction: column; overflow: hidden;",
                                 
                                 div {
@@ -666,7 +715,7 @@ fn app() -> Element {
                                     }
                                 }
 
-                                div { style: "padding: 8px 15px; background: rgba(137, 180, 250, 0.1); font-weight: 600; font-size: 0.75em; border-bottom: 1px solid var(--border-color); color: var(--accent-primary); flex-shrink: 0;", "{i18n.translate(\"staged-changes\")}" } 
+                                div { style: "padding: 8px 15px; background: rgba(137, 180, 250, 0.1); font-weight: 600; font-size: 0.75em; border-bottom: 1px solid var(--border-color); color: var(--accent-primary); flex-shrink: 0;", "{i18n.translate(\"staged-changes\")}" }
                                 ul { style: "list-style: none; padding: 0; margin: 0; flex: 0.4; overflow-y: auto; background: var(--bg-base); min-height: 0; border-bottom: 1px solid var(--border-color);",
                                     for file in staged_files {
                                         {
@@ -701,7 +750,7 @@ fn app() -> Element {
                                     }
                                 }
 
-                                div { style: "padding: 8px 15px; background: rgba(243, 139, 168, 0.1); font-weight: 600; font-size: 0.75em; border-bottom: 1px solid var(--border-color); color: var(--accent-secondary); flex-shrink: 0;", "{i18n.translate(\"unstaged-changes\")}" } 
+                                div { style: "padding: 8px 15px; background: rgba(243, 139, 168, 0.1); font-weight: 600; font-size: 0.75em; border-bottom: 1px solid var(--border-color); color: var(--accent-secondary); flex-shrink: 0;", "{i18n.translate(\"unstaged-changes\")}" }
                                 ul { style: "list-style: none; padding: 0; margin: 0; flex: 0.4; overflow-y: auto; background: var(--bg-base); min-height: 0;",
                                     for file in unstaged_files {
                                         {
@@ -736,7 +785,7 @@ fn app() -> Element {
                                     }
                                 }
                             }
-                        } else { 
+                        } else {
                             div { style: "flex: 1; background: #1e1e2e; color: #cdd6f4; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85em; padding: 10px; min-height: 0;",
                                 for line in diff_content.lines() {
                                     {
@@ -747,7 +796,7 @@ fn app() -> Element {
                             }
                         }
                     } else {
-                        if let Some((author, committer, msg, sha, parents)) = commit_details { 
+                        if let Some((author, committer, msg, sha, parents)) = commit_details {
                             div { style: "flex: 1; display: flex; flex-direction: column; overflow: hidden;",
                                 div { style: "padding: 20px; border-bottom: 1px solid var(--border-color); background: var(--bg-surface); flex-shrink: 0;",
                                     div { style: "display: flex; gap: 15px; margin-bottom: 15px;",
@@ -761,7 +810,7 @@ fn app() -> Element {
                                     }
                                     div { style: "white-space: pre-wrap; font-size: 0.95em; line-height: 1.5; color: var(--text-main); background: rgba(0,0,0,0.2); padding: 12px; border-radius: 6px; border: 1px solid var(--border-color);", "{msg}" }
                                 }
-                                div { style: "padding: 8px 15px; background: var(--bg-header); font-weight: 600; font-size: 0.75em; border-bottom: 1px solid var(--border-color); color: var(--text-sub); flex-shrink: 0;", "CHANGED FILES" } 
+                                div { style: "padding: 8px 15px; background: var(--bg-header); font-weight: 600; font-size: 0.75em; border-bottom: 1px solid var(--border-color); color: var(--text-sub); flex-shrink: 0;", "CHANGED FILES" }
                                 ul { style: "list-style: none; padding: 0; margin: 0; flex: 0.3; overflow-y: auto; background: var(--bg-base); min-height: 0;",
                                     for file in commit_files {
                                         {
@@ -789,7 +838,7 @@ fn app() -> Element {
                                 }
                             }
                         } else {
-                            div { style: "padding: 40px; color: var(--text-sub); text-align: center;", "Select a commit to view details" } 
+                            div { style: "padding: 40px; color: var(--text-sub); text-align: center;", "Select a commit to view details" }
                         }
                     }
                 }
@@ -834,7 +883,7 @@ fn app() -> Element {
                             onmousedown: move |e| e.stop_propagation(), 
                             
                             if menu_type == "commit" {
-                                div { 
+                                div {
                                     div { style: "padding: 4px 12px; font-weight: bold; color: var(--text-sub); font-size: 0.8em;", "QUICK ACTIONS (HEAD)" }
                                     div { class: "dropdown-item", 
                                         onclick: move |_| { 
@@ -877,7 +926,7 @@ fn app() -> Element {
                                         "{i18n.translate(\"menu-copy-info\")}" 
                                     }
                                 }
-                            } else if menu_type == "file_staged" { 
+                            } else if menu_type == "file_staged" {
                                 div {
                                     div { class: "dropdown-item", onclick: move |_| { let _ = Command::new("explorer").arg("/select,").arg(&t4_explorer).spawn(); context_menu_pos.set(None); }, "{i18n.translate(\"menu-open\")}" }
                                     div { class: "dropdown-item", 
@@ -889,7 +938,7 @@ fn app() -> Element {
                                         "{i18n.translate(\"menu-unstage\")}" 
                                     }
                                 }
-                            } else if menu_type == "file_unstaged" { 
+                            } else if menu_type == "file_unstaged" {
                                 div {
                                     div { class: "dropdown-item", onclick: move |_| { let _ = Command::new("explorer").arg("/select,").arg(&t4_explorer).spawn(); context_menu_pos.set(None); }, "{i18n.translate(\"menu-open\")}" }
                                     div { class: "dropdown-item", 
@@ -903,7 +952,7 @@ fn app() -> Element {
                                     div { class: "dropdown-item", onclick: move |_| { let _ = GitHandler::add_to_gitignore(&p_ignore, &t8_ignore); context_menu_pos.set(None); let next = *refresh_trigger.read() + 1; refresh_trigger.set(next); }, "{i18n.translate(\"menu-ignore\")}" }
                                     div { class: "separator" }
                                     div { class: "dropdown-item", style: "color: var(--accent-secondary);", onclick: move |_| { let _ = GitHandler::discard_changes(&p_discard, &t4_discard); context_menu_pos.set(None); let next = *refresh_trigger.read() + 1; refresh_trigger.set(next); }, "{i18n.translate(\"menu-discard\")}" }
-                                }
+                                } 
                             } else if menu_type == "branch" { 
                                 div {
                                     div { class: "dropdown-item", onclick: move |_| { let _ = GitHandler::checkout_branch(&p_checkout_b, &t9_checkout_b); context_menu_pos.set(None); let next = *refresh_trigger.read() + 1; refresh_trigger.set(next); }, "{i18n.translate(\"menu-checkout-branch\")}" }
@@ -917,7 +966,7 @@ fn app() -> Element {
             }
             
             if *show_reword_modal.read() {
-                div { 
+                div {
                     style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5000; display: flex; align-items: center; justify-content: center;",
                     div {
                         style: "background: var(--bg-surface); padding: 25px; border-radius: 12px; width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color); color: var(--text-main);",
@@ -951,7 +1000,7 @@ fn app() -> Element {
             }
 
             if *show_author_modal.read() {
-                div { 
+                div {
                     style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5000; display: flex; align-items: center; justify-content: center;",
                     div {
                         style: "background: var(--bg-surface); padding: 25px; border-radius: 12px; width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color); color: var(--text-main);",
@@ -992,7 +1041,7 @@ fn app() -> Element {
             }
 
             if *show_clone_modal.read() {
-                div { 
+                div {
                     style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5000; display: flex; align-items: center; justify-content: center;",
                     div {
                         style: "background: var(--bg-surface); padding: 25px; border-radius: 12px; width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color); color: var(--text-main);",
@@ -1009,12 +1058,14 @@ fn app() -> Element {
                                 class: "btn-primary",
                                 onclick: move |_| {
                                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                        let new_path = path.display().to_string();
                                         let url = clone_url_input.read().clone();
                                         if !url.is_empty() {
-                                            match GitHandler::clone(&url, &path.display().to_string()) {
+                                            match GitHandler::clone(&url, &new_path) {
                                                 Ok(_) => {
-                                                    status_msg.set("Clone successful".to_string());
-                                                    repo_path.set(path.display().to_string());
+                                                    status_msg.set("Clone successful".to_string()); 
+                                                        let _ = save_credentials(&git_user.read(), &git_token.read(), &new_path);
+                                                    repo_path.set(new_path.clone());
                                                 },
                                                 Err(e) => status_msg.set(format!("Clone Error: {}", e)),
                                             }
@@ -1031,7 +1082,7 @@ fn app() -> Element {
             }
 
             if *show_branch_modal.read() {
-                div { 
+                div {
                     style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5000; display: flex; align-items: center; justify-content: center;",
                     div {
                         style: "background: var(--bg-surface); padding: 25px; border-radius: 12px; width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color); color: var(--text-main);",
@@ -1066,7 +1117,7 @@ fn app() -> Element {
             }
 
             if *show_tag_modal.read() {
-                div { 
+                div {
                     style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5000; display: flex; align-items: center; justify-content: center;",
                     div {
                         style: "background: var(--bg-surface); padding: 25px; border-radius: 12px; width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color); color: var(--text-main);",
@@ -1101,7 +1152,7 @@ fn app() -> Element {
             }
 
             if *show_settings_modal.read() {
-                div { 
+                div {
                     style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5000; display: flex; align-items: center; justify-content: center;",
                     div {
                         style: "background: var(--bg-surface); padding: 25px; border-radius: 12px; width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color); color: var(--text-main);",
@@ -1123,7 +1174,7 @@ fn app() -> Element {
                             button {
                                 class: "btn-primary",
                                 onclick: move |_| {
-                                    match save_credentials(&git_user.read(), &git_token.read()) {
+                                    match save_credentials(&git_user.read(), &git_token.read(), &repo_path.read()) {
                                         Ok(_) => status_msg.set("Anmeldedaten gespeichert!".to_string()),
                                         Err(e) => status_msg.set(format!("Fehler beim Speichern der Anmeldedaten: {}", e)),
                                     }

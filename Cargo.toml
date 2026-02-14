@@ -9,6 +9,7 @@ description = "GitAmicus"
 dioxus = { version = "0.5", features = ["desktop"] }
 dioxus-desktop = "0.5"
 git2 = "0.19"
+chrono = "0.4"
 fluent = "0.16"
 unic-langid = "0.9"
 serde = { version = "1.0", features = ["derive"] }
