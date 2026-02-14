@@ -15,6 +15,7 @@ pub struct GraphNode {
 const LANE_WIDTH: f64 = 20.0;
 const ROW_HEIGHT: f64 = 32.0;
 const CIRCLE_RADIUS: f64 = 6.5;
+const BEZIER_CONTROL_OFFSET: f64 = 0.4; // Control point offset for smoother curves
 
 // A simplified graph layout algorithm. It's not perfect but a good start.
 pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)]) -> Vec<GraphNode> {
@@ -30,12 +31,14 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
 
     let mut lane_heads: Vec<Option<String>> = Vec::new();
     let mut commit_lanes: HashMap<String, usize> = HashMap::new();
+    let mut branch_colors: HashMap<String, usize> = HashMap::new(); // Track branch colors
+    let mut next_color: usize = 0;
 
-    // Assign lanes to commits
+    // Assign lanes to commits with better continuity
     for (_i, (sha, _, _, _, parents)) in commits.iter().enumerate() {
         let mut assigned_lane = None;
 
-        // Try to reuse the lane of the first parent
+        // Try to reuse the lane of the first parent for continuity
         if let Some(parent_sha) = parents.get(0) {
             if let Some(&parent_lane) = commit_lanes.get(parent_sha) {
                 if lane_heads.get(parent_lane).and_then(|h| h.as_ref()) == Some(parent_sha) {
@@ -61,6 +64,21 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
             lane_heads.resize(lane + 1, None);
         }
         lane_heads[lane] = Some(sha.clone());
+        
+        // Assign color to this branch if not already assigned
+        if !branch_colors.contains_key(sha) {
+            if let Some(parent_sha) = parents.get(0) {
+                if let Some(&parent_color) = branch_colors.get(parent_sha) {
+                    branch_colors.insert(sha.clone(), parent_color);
+                } else {
+                    branch_colors.insert(sha.clone(), next_color % 8);
+                    next_color += 1;
+                }
+            } else {
+                branch_colors.insert(sha.clone(), next_color % 8);
+                next_color += 1;
+            }
+        }
 
         // For merge commits, free up the lanes of the other parents
         for (_idx, parent_sha) in parents.iter().enumerate().filter(|(i, _)| *i > 0) {
@@ -72,37 +90,42 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
         }
     }
 
-    // Generate drawable nodes with SVG paths
+    // Generate drawable nodes with SVG paths using smooth Bezier curves
     for (i, (sha, _, _, _, parents)) in commits.iter().enumerate() {
         let &current_lane = commit_lanes.get(sha).unwrap_or(&0);
+        let current_color = branch_colors.get(sha).copied().unwrap_or(current_lane % 8);
         let mut paths = Vec::new();
         let mut path_colors = Vec::new();
 
         for parent_sha in parents {
             if let Some(&parent_row) = sha_to_row.get(parent_sha) {
                 let &parent_lane = commit_lanes.get(parent_sha).unwrap_or(&0);
+                let parent_color = branch_colors.get(parent_sha).copied().unwrap_or(parent_lane % 8);
 
                 let x1 = (current_lane as f64 * LANE_WIDTH) + LANE_WIDTH / 2.0;
                 let y1 = (i as f64 * ROW_HEIGHT) + ROW_HEIGHT / 2.0;
                 let x2 = (parent_lane as f64 * LANE_WIDTH) + LANE_WIDTH / 2.0;
                 let y2 = (parent_row as f64 * ROW_HEIGHT) + ROW_HEIGHT / 2.0;
 
+                // Use smooth quadratic Bezier curves for ALL connections
                 let path = if current_lane == parent_lane {
-                    // Straight line for same lane
-                    format!("M {} {} L {} {}", x1, y1, x2, y2)
+                    // Even for same lane, use a subtle curve for smoother appearance
+                    let control_y = (y1 + y2) / 2.0;
+                    format!("M {} {} Q {} {}, {} {}", x1, y1, x1, control_y, x2, y2)
                 } else {
                     // Quadratic Bezier curve for lane changes - smoother appearance
-                    let control_y = (y1 + y2) / 2.0;
+                    let dy = y2 - y1;
+                    let control_y = y1 + dy * BEZIER_CONTROL_OFFSET;
                     let control_x = if x1 < x2 { 
-                        x1 + (x2 - x1) * 0.5 
+                        x1 + (x2 - x1) * BEZIER_CONTROL_OFFSET 
                     } else { 
-                        x2 + (x1 - x2) * 0.5 
+                        x1 - (x1 - x2) * BEZIER_CONTROL_OFFSET 
                     };
                     format!("M {} {} Q {} {}, {} {}", x1, y1, control_x, control_y, x2, y2)
                 };
                 paths.push(path);
-                // Use parent lane color for the path for better branch visualization
-                path_colors.push(parent_lane % 8);
+                // Use the color of the commit that owns this connection
+                path_colors.push(parent_color);
             }
         }
 
@@ -113,7 +136,7 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
             cx: (current_lane as f64 * LANE_WIDTH) + LANE_WIDTH / 2.0, 
             cy: ROW_HEIGHT / 2.0, 
             r: CIRCLE_RADIUS, 
-            color_index: current_lane % 8 
+            color_index: current_color
         });
     }
 
