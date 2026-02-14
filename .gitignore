@@ -3,4 +3,4 @@
 **/*.rs.bak
 Cargo.lock
 dist/
-bin/
+bin/*.rlib

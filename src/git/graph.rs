@@ -5,15 +5,16 @@ use std::collections::HashMap;
 pub struct GraphNode {
     pub sha: String,
     pub paths: Vec<String>, // SVG path 'd' attributes
+    pub path_colors: Vec<usize>, // Color index for each path
     pub cx: f64,            // Circle x
     pub cy: f64,            // Circle y
     pub r: f64,             // Circle radius
     pub color_index: usize, // To pick a color from a palette
 }
 
-const LANE_WIDTH: f64 = 15.0;
-const ROW_HEIGHT: f64 = 28.0;
-const CIRCLE_RADIUS: f64 = 4.0;
+const LANE_WIDTH: f64 = 20.0;
+const ROW_HEIGHT: f64 = 32.0;
+const CIRCLE_RADIUS: f64 = 6.5;
 
 // A simplified graph layout algorithm. It's not perfect but a good start.
 pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)]) -> Vec<GraphNode> {
@@ -75,6 +76,7 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
     for (i, (sha, _, _, _, parents)) in commits.iter().enumerate() {
         let &current_lane = commit_lanes.get(sha).unwrap_or(&0);
         let mut paths = Vec::new();
+        let mut path_colors = Vec::new();
 
         for parent_sha in parents {
             if let Some(&parent_row) = sha_to_row.get(parent_sha) {
@@ -86,16 +88,33 @@ pub fn generate_graph(commits: &[(String, String, String, String, Vec<String>)])
                 let y2 = (parent_row as f64 * ROW_HEIGHT) + ROW_HEIGHT / 2.0;
 
                 let path = if current_lane == parent_lane {
+                    // Straight line for same lane
                     format!("M {} {} L {} {}", x1, y1, x2, y2)
                 } else {
-                    let mid_y = y1 + ROW_HEIGHT / 2.0;
-                    format!("M {} {} C {} {}, {} {}, {} {}", x1, y1, x1, mid_y, x2, mid_y, x2, y2)
+                    // Quadratic Bezier curve for lane changes - smoother appearance
+                    let control_y = (y1 + y2) / 2.0;
+                    let control_x = if x1 < x2 { 
+                        x1 + (x2 - x1) * 0.5 
+                    } else { 
+                        x2 + (x1 - x2) * 0.5 
+                    };
+                    format!("M {} {} Q {} {}, {} {}", x1, y1, control_x, control_y, x2, y2)
                 };
                 paths.push(path);
+                // Use parent lane color for the path for better branch visualization
+                path_colors.push(parent_lane % 8);
             }
         }
 
-        nodes.push(GraphNode { sha: sha.clone(), paths, cx: (current_lane as f64 * LANE_WIDTH) + LANE_WIDTH / 2.0, cy: ROW_HEIGHT / 2.0, r: CIRCLE_RADIUS, color_index: current_lane % 8 });
+        nodes.push(GraphNode { 
+            sha: sha.clone(), 
+            paths, 
+            path_colors,
+            cx: (current_lane as f64 * LANE_WIDTH) + LANE_WIDTH / 2.0, 
+            cy: ROW_HEIGHT / 2.0, 
+            r: CIRCLE_RADIUS, 
+            color_index: current_lane % 8 
+        });
     }
 
     nodes
