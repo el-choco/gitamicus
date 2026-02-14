@@ -6,14 +6,8 @@ mod ui;
 
 use dioxus::prelude::*;
 use dioxus::desktop::{Config, WindowBuilder};
-use  crate::dioxus_elements::input_data::MouseButton;
 #[cfg(target_os = "windows")]
 use dioxus::desktop::tao::platform::windows::WindowBuilderExtWindows;
-use i18n::I18nService;
-use git::GitHandler;
-use sys_locale::get_locale;
-use std::process::Command;
-use std::path::Path;
 use std::path::PathBuf; 
 use std::fs;
 use directories::BaseDirs;
@@ -56,17 +50,6 @@ pub fn save_credentials(user: &str, token: &str, repo_path: &str) -> Result<(), 
         Err("Konfigurationsverzeichnis konnte nicht ermittelt werden.".to_string())
     }
 }
-
-pub const GRAPH_COLORS: [&str; 8] = [
-    "#89b4fa", // blue
-    "#f9e2af", // yellow
-    "#a6e3a1", // green
-    "#f38ba8", // red
-    "#cba6f7", // mauve
-    "#fab387", // peach
-    "#94e2d5", // teal
-    "#f5c2e7", // pink
-];
 
 fn main() {
     let custom_head = r#"
