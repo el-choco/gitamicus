@@ -176,8 +176,8 @@ fn main() {
             
             .commit-graph-cell-svg {
                 padding: 0 !important;
-                width: 120px;
-                min-width: 120px;
+                width: 140px;
+                min-width: 140px;
                 overflow: hidden;
                 position: relative;
             }

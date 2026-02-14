@@ -370,10 +370,17 @@ pub fn app() -> Element {
                                                     prevent_default: "oncontextmenu",
                                                     td { class: "commit-graph-cell-svg",
                                                         svg {
-                                                            height: "28px",
-                                                            width: "120px",
-                                                            for path_d in &node.paths {
-                                                                path { d: "{path_d}", stroke: "var(--border-color)", "stroke-width": "2", fill: "none" }
+                                                            height: "32px",
+                                                            width: "140px",
+                                                            for (idx, path_d) in node.paths.iter().enumerate() {
+                                                                path { 
+                                                                    d: "{path_d}", 
+                                                                    stroke: "{GRAPH_COLORS[node.path_colors.get(idx).unwrap_or(&node.color_index)]}", 
+                                                                    "stroke-width": "4", 
+                                                                    fill: "none",
+                                                                    "stroke-linecap": "round",
+                                                                    "stroke-linejoin": "round"
+                                                                }
                                                             }
                                                             circle {
                                                                 cx: "{node.cx}",
@@ -381,7 +388,7 @@ pub fn app() -> Element {
                                                                 r: "{node.r}",
                                                                 fill: "var(--bg-base)",
                                                                 stroke: "{GRAPH_COLORS[node.color_index]}",
-                                                                "stroke-width": "2"
+                                                                "stroke-width": "3"
                                                             }
                                                         }
                                                     }
