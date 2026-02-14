@@ -1,2 +1,4 @@
 # gitamicus
-Git Client based on Rust.
+**Git Client based on Rust.**
+
+**under construction** 🚧 
