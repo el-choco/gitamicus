@@ -121,7 +121,7 @@ pub fn app() -> Element {
         GitHandler::get_commit_details(&current_path, sha).ok()
     } else { None };
 
-    let svg_view_height = (commits_raw.len() as f64 * 32.0).max(32.0).ceil() as i32;
+    let svg_view_height = (commits_raw.len() as f64 * 40.0).max(40.0).ceil() as i32;
 
     rsx! {
         div {
@@ -372,9 +372,9 @@ pub fn app() -> Element {
                                                     prevent_default: "oncontextmenu",
                                                     td { class: "commit-graph-cell-svg",
                                                         svg {
-                                                            height: "32px",
-                                                            width: "180px",
-                                                            viewBox: "0 0 180 {svg_view_height}",
+                                                            height: "40px",
+                                                            width: "245px",
+                                                            viewBox: "0 0 245 {svg_view_height}",
                                                             for (idx, path_d) in node.paths.iter().enumerate() {
                                                                 path { 
                                                                     d: "{path_d}", 
