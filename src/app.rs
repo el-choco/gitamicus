@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use crate::dioxus_elements::input_data::MouseButton;
 use crate::i18n::I18nService;
-use crate::git::GitHandler;
-use crate::{load_credentials, save_credentials, GRAPH_COLORS};
+use crate::git::{GitHandler, GRAPH_COLORS};
+use crate::{load_credentials, save_credentials};
 use sys_locale::get_locale;
 use std::path::Path;
 use std::process::Command;
@@ -375,7 +375,7 @@ pub fn app() -> Element {
                                                             for (idx, path_d) in node.paths.iter().enumerate() {
                                                                 path { 
                                                                     d: "{path_d}", 
-                                                                    stroke: "{GRAPH_COLORS[node.path_colors.get(idx).unwrap_or(&node.color_index)]}", 
+                                                                    stroke: "{GRAPH_COLORS[*node.path_colors.get(idx).unwrap_or(&node.color_index)]}", 
                                                                     "stroke-width": "4", 
                                                                     fill: "none",
                                                                     "stroke-linecap": "round",

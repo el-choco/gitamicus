@@ -5,6 +5,17 @@ use chrono::{DateTime, Local};
 
 pub mod graph;
 
+pub const GRAPH_COLORS: [&str; 8] = [
+    "#89b4fa", // blue
+    "#f9e2af", // yellow
+    "#a6e3a1", // green
+    "#f38ba8", // red
+    "#cba6f7", // mauve
+    "#fab387", // peach
+    "#94e2d5", // teal
+    "#f5c2e7", // pink
+];
+
 pub struct GitHandler;
 
 impl GitHandler {
