@@ -23,7 +23,7 @@ pub const GRAPH_COLORS: &[&str] = &[
 ];
 
 const LANE_WIDTH: f64 = 30.0;
-const ROW_HEIGHT: f64 = 32.0;
+const ROW_HEIGHT: f64 = 40.0;
 const CIRCLE_RADIUS: f64 = 5.5;
 const LINE_OFFSET: f64 = LANE_WIDTH / 2.0;
 
